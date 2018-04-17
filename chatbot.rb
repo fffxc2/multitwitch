@@ -6,9 +6,32 @@ SCRIPT_DESCRIPTION="Sets up a response to ! based commands. Primarily for use wi
 require 'rubygems'
 require 'twitch-api'
 
+module Command
+  def strip_leading
+    self[1..-1]
+  end
+
+  def is_local_method?
+    self[0] == '_'
+  end
+
+  def is_bot_command?
+    self[0] == '!'
+  end
+
+  def to_bot_command
+    is_local_method? ? "!#{strip_leading}" : self
+  end
+
+  def to_local_method
+    is_bot_command? ? "_#{strip_leading}" : self
+  end
+end
+
 def weechat_init
+  String.include Command
   Weechat.register(SCRIPT_NAME,SCRIPT_AUTHOR,SCRIPT_VERSION,"",SCRIPT_DESCRIPTION,"","")
-  
+
   Weechat.print("", "Registering channel hooks")
   channels_to_watch.each do |c|
     Weechat.print("", "Trying to hook channel #{c}") 
@@ -26,15 +49,19 @@ def weechat_init
 end
 
 def commands
-  self.methods(false).select { |m| m =~ /^_/ }
+  # Won't change, so store this
+  @cmds ||= self.methods(false).select { |m| m =~ /^_/ }.map { |m| m.to_s.to_bot_command }
+end
+
+def _help
+  "The following commands are available: " + commands.join(', ')
 end
 
 def check_for_command(_, buffer, _, _, _, _, _, message)
   commands.each do |command|
-    Weechat.print("", " -- Checking for !#{command} -- #{message}")
-    if message =~ /^\!#{command[1..-1]}$/ #Command methods start with _, so skip that char and take the rest of the name
+    if message =~ /^#{command}$/ #Command methods start with _, so skip that char and take the rest of the name
       unless rate_limiting?("@buffer_rate_limit", buffer, 5) # Currently max of 1 command per 5 sec
-	Weechat.command(buffer,"/say #{send(command)}") # This expects the method named as the command to return a string
+        Weechat.command(buffer,"/say #{send(command.to_local_method)}") # This expects the method named as the command to return a string
       end
     end
   end  
@@ -48,8 +75,7 @@ def _multi
     "No streams are currently live"
   else
     #"/say Tune in at http://multitwitch.tv/#{live_channels.join('/')}"
-    #"/say Tune in at https://multistre.am/#{live_channels.join('/')}/layout7" 
-    "Under development, check back later"
+    "Tune in at https://multistre.am/#{live_channels.join('/')}/layout7"
   end
 end
 
